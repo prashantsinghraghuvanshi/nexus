@@ -5,10 +5,11 @@ import com.nexus.auth_service.dto.LoginRequest;
 import com.nexus.auth_service.dto.RegisterRequest;
 import com.nexus.auth_service.entity.User;
 import com.nexus.auth_service.repository.UserRepository;
+import com.nexus.auth_service.limiter.TokenBucketRateLimiter;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -21,8 +22,21 @@ public class AuthController {
     @Autowired
     private BCryptPasswordEncoder passwordEncoder;
 
+    @Autowired
+    private TokenBucketRateLimiter rateLimiter;
+
     @PostMapping("/register")
     public ResponseEntity<AuthResponse> register(@RequestBody RegisterRequest request) {
+        String clientId = "register:" + request.getUsername();
+
+        if (!rateLimiter.isAllowed(clientId)) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(AuthResponse.builder()
+                            .success(false)
+                            .message("Rate limit exceeded. Try again later.")
+                            .build());
+        }
+
         if (userRepository.findByUsername(request.getUsername()).isPresent()) {
             return ResponseEntity
                     .badRequest()
@@ -48,6 +62,16 @@ public class AuthController {
 
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(@RequestBody LoginRequest request) {
+        String clientId = "login:" + request.getUsername();
+
+        if (!rateLimiter.isAllowed(clientId)) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(AuthResponse.builder()
+                            .success(false)
+                            .message("Rate limit exceeded. Try again later.")
+                            .build());
+        }
+
         User user = userRepository.findByUsername(request.getUsername())
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
